@@ -1,0 +1,21 @@
+<h1>Authenticate</h1>
+
+<h2>Via social network</h2>
+
+<% @providers.each do |provider| %>
+    <%= link_to provider.titleize, "/auth/#{provider}" %>
+<% end %>
+
+<h2>Or use email and password</h2>
+
+<%= form_tag sessions_path, method: :post do %>
+    <%= label_tag 'email', 'Your email' %>
+    <%= email_field_tag 'email' %>
+
+    <%= label_tag 'password', 'Your password' %>
+    <%= password_field_tag 'password' %>
+
+    <%= submit_tag 'Login' %>
+<% end %>
+
+<p>Don't have an account yet? <%= link_to 'Sign up!', new_user_path %></p>

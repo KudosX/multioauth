@@ -1,0 +1,13 @@
+<h1>Edit profile for <%= @user.email %></h1>
+
+<h2>Social Accounts</h2>
+
+<% @providers.each do |provider| %>
+    <% if current_user.has_provider?(provider) %>
+        <%= link_to "Disconnect #{provider.titleize}",
+                    social_account_path(current_user.with_provider(provider)),
+                    method: :delete %>
+    <% else %>
+        <%= link_to "Connect #{provider.titleize}", "/auth/#{provider}" %>
+    <% end %>
+<% end %>

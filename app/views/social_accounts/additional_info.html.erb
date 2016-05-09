@@ -1,0 +1,11 @@
+<h1>Please provide some additional info</h1>
+
+<%= form_tag finalize_social_accounts_path, method: :post do %>
+    <%= label_tag 'email', 'Your email' %>
+    <%= email_field_tag 'email', @auth_hash['info']['email'] %>
+
+    <%= label_tag 'password', 'Your password' %>
+    <%= password_field_tag 'password' %>
+
+    <%= submit_tag 'Log In' %>
+<% end %>

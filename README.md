@@ -20,12 +20,472 @@
 - adjust this in social_accounts migration `:provider, index: true`, `:uid, index: true`, `timestamps null: false`
 - add index lines below after the first end in social_accounts migration
 ```
-add_index :social_accounts, :provider
-add_index :social_accounts, :uid
-add_index :social_accounts, :user_id
 add_index :social_accounts, [:provider, :uid], unique: true
 ```
 - run `rails db:migrate`
 
+#### Step 2: create controllers
+- `rails g controller users`
+- `rails g controller sessions`
+- `rails g controller social_accounts`
 
+#### Step 3: create config/initializers/omniauth.rb file and add following code
+```
+Rails.application.config.middleware.use OmniAuth::Builder do
+  provider :twitter, ENV["TWITTER_KEY"], ENV["TWITTER_SECRET"]
+  provider :facebook, ENV["FACEBOOK_ID"], ENV["FACEBOOK_SECRET"]
+  provider :linkedin, ENV["LINKEDIN_ID"], ENV["LINKEDIN_SECRET"]
+  provider :instagram, ENV["INSTAGRAM_ID"], ENV["INSTAGRAM_SECRET"]
+end
+```
+
+#### Step 5: get client ID(KEY) and SECRET from OAuth service providers - Twitter
+- don't start rails server and test until step 9
+- https://dev.twitter.com/oauth/overview/application-owner-access-tokens
+- https://apps.twitter.com to create your application
+- authentication options: https://github.com/arunagw/omniauth-twitter#authentication-options
+- below are the URL callbacks for the providers, can't use localhost for twitter but, IP address only
+- Facebook: http://localhost:3000/auth/facebook/callback
+- Twitter: http://127.0.0.1:3000/auth/twitter/callback
+- Linkedin: http://localhost:3000/auth/linkedin/callback
+- Instagram: http://localhost:3000/auth/instagram/callback
+
+#### Step 6: adding Facebook ID/SECRET
+- go to https://developers.facebook.com and add new app
+- scope list: https://developers.facebook.com/docs/facebook-login/permissions/v2.3#reference
+- info_fields: https://developers.facebook.com/docs/graph-api/reference/user/
+- config settings:  https://github.com/mkdynamic/omniauth-facebook#configuring
+
+#### Step 7: adding Linkedin ID/SECRET
+- go to https://www.linkedin.com/developer/apps and add new app
+- profile fields: https://github.com/decioferreira/omniauth-linkedin-oauth2#profile-fields
+
+#### Step 8: adding Instagram ID/SECRET
+- developer site: https://www.instagram.com/developer
+- Documentation: https://github.com/ropiku/omniauth-instagram
+- instagram has a review policy for app approval and using scopes, must submit video. 
+
+#### Step 9: add ENVIRONMENT VARIABLES to .bash_profile on mac
+- for development mode only
+- `nano ~/.bash_profile` will open your bash file
+- NOTE: close terminal to reset .bash_profile
+```
+export TWITTER_KEY="xxxxxkey_from_twitter_apixxxxxx"
+export TWITTER_SECRET="xxxxxxsecret_from_twitter_apixxxxxx"
+export FACEBOOK_ID="xxxID_from_facebook_xxx"
+export FACEBOOK_SECRET="xxxSECRET_from_facebook_xxx"
+export LINKEDIN_ID="xxxID_from_linkedin_xxx"
+export LINKEDIN_SECRET="xxxSECRET_from_linkedin_xxx"
+export INSTAGRAM_ID="xxxID_from_instagram_xxx"
+export INSTAGRAM_SECRET="xxxSECRET_from_instagram_xxx"
+```
+
+#### Step 10: update /models/social_account.rb model to the following
+```
+class SocialAccount < ApplicationRecord
+  AVAILABLE_PROVIDERS = %w(twitter, facebook, linkedin, instagram)
+
+  belongs_to :user
+  validates :provider, presence: true, inclusion: { in: AVAILABLE_PROVIDERS }
+  validates :uid, uniqueness: { scope: :provider }
+
+  class << self
+    def from_omniauth(auth, user)
+      # We try to fetch social_account based on the passed provider and uid
+      # If such social account cannot be found, we define (initialize) a new one
+      # Please note that initialization means that we ONLY store it in memory - we do not save it to the
+      # database yet
+      social_account = find_or_initialize_by(provider: auth['provider'], uid: auth['uid'])
+      unless social_account.user
+        # if the social_account does not have any parent user
+        # we check if the user was passed
+        # if no user is set, we raise an error - it means that we simply don't have enough data about the user
+        # if the user IS set, we store its id
+        user.nil? ? raise(RecordNotFound) : social_account.user = user
+      end
+      # now just save any other data
+      social_account.name = auth['info']['name']
+      # save the social_account into the database
+      social_account.save!
+      # and return it as a result
+      social_account
+    end
+  end
+end
+```
+
+#### Step 11: add logic to models/user.rb model
+```
+class User < ApplicationRecord
+  has_secure_password
+
+  has_many :social_accounts, dependent: :destroy
+  validates :email, presence: true, uniqueness: true
+
+  def has_provider?(provider)
+    !with_provider(provider).nil?
+  end
+
+  # Fetch user's social account by provider's name
+  def with_provider(provider)
+    social_accounts.find_by(provider: provider)
+  end
+
+  # def method_missing(name, *args, &block)
+  #   provider = name.match(/has_(\w+)\?\z/)
+  #   if provider && SocialAccount::AVAILABLE_PROVIDERS.include?(provider[1])
+  #     social_accounts.where(provider: provider).any?
+  #   else
+  #     super
+  #   end
+  # end
+end
+```
+
+#### Step 12: add logic to users_controller.rb
+```
+class UsersController < ApplicationController
+  skip_before_action :authenticate_user!, only: [:new, :create]
+  before_action :require_no_authentication, only: [:new, :create]
+  # Users cannot modify profiles they do not own
+  before_action :check_owner!, only: [:edit, :update]
+
+  def edit
+    @providers = SocialAccount::AVAILABLE_PROVIDERS
+  end
+
+  def update
+  end
+
+  def new
+    @user = User.new
+  end
+
+  def create
+    @user = User.new(user_params)
+    if @user.save
+      flash[:success] = "Welcome!"
+      sign_in @user
+      redirect_to root_path
+    else
+      render :new
+    end
+  end
+
+  private
+
+  def user_params
+    # :password and :password_confirmation are virtual attributes - they are not being
+    # stored to the database. Instead we store a hash of the password
+    # Read more here
+    # http://api.rubyonrails.org/classes/ActiveModel/SecurePassword/ClassMethods.html#method-i-has_secure_password
+    params.require(:user).permit(:email, :password, :password_confirmation)
+  end
+
+  def check_owner!
+    @user = User.find_by(id: params[:id])
+    redirect_to root_path unless @user && current_user == @user
+  end
+end
+```
+
+#### Step 13: add logic to social_accounts_controller.rb
+```
+class SocialAccountsController < ApplicationController
+  skip_before_action :authenticate_user!, except: [:destroy]
+  # We have to check the owner. If the requested account does not belong to the
+  # currently logged in user, do nothing.
+  before_action :check_owner!, only: [:destroy]
+
+  def create
+    begin
+      # go ahead and try to create a new social account or find an existing one
+      # note that current_user may return nil
+      @social_account = SocialAccount.from_omniauth(request.env['omniauth.auth'], current_user)
+      # We rescue from the error that is raised when we do not have enough information about the user
+    rescue RecordNotFound
+      # Store the authentication hash in the session - we will require it a bit later
+      session[:auth_hash] = request.env['omniauth.auth'].except('extra', 'credentials')
+      flash[:success] = "Please provide some more data..."
+      # Redirect to another page with a form to provide additional data
+      redirect_to additional_info_social_accounts_path and return
+    end
+    # Otherwise we take the associated user and sign him in (unless he is already signed in)
+    sign_in(@social_account.user) unless current_user
+    redirect_to edit_user_path(@social_account.user)
+  end
+
+  def additional_info
+    # If authentication hash is not set, we just redirect to the root page
+    # We require this hash to proceed
+    redirect_to root_path unless session[:auth_hash]
+    # This hash will be used to build a form
+    @auth_hash = session[:auth_hash]
+  end
+  
+def finalize
+    # Fetch the provided e-mail and find or set a new user
+    @user = User.find_or_initialize_by(email: params[:email])
+    # If the user was not found in the database, it will be marked as a new record (meaning that it is not yet saved)
+    if !@user.new_record?
+      # If the user WAS found, we have to check that the correct password was entered
+      # This is done to prevent malicious users from logging in via accounts they do not own
+      redirect_to root_path and return unless @user.authenticate(params[:password])
+    else
+      # If the user was not found, we have to set a password for him
+      @user.password = params[:password]
+      @user.password_confirmation = params[:password]
+      # If @user.save returned false, it means that some incorrect data were provided
+      render 'additional_info' and return unless @user.save
+    end
+    # Now just try to create social_account again - this time it should be successful, because we do
+    # have a user account now
+    @social_account = SocialAccount.from_omniauth(session.delete(:auth_hash), @user)
+    # Lastly, sign him in
+    sign_in @social_account.user
+    redirect_to edit_user_path(@social_account.user)
+  end
+
+  def destroy
+    @social_account.destroy
+    redirect_to edit_user_path(@social_account.user)
+  end
+
+  private
+
+  def check_owner!
+    @social_account = SocialAccount.find_by(id: params[:id])
+    redirect_to root_path unless @social_account && current_user.social_accounts.include?(@social_account)
+  end
+end
+```
+
+#### Step 14: add logic to sessions_controller.rb
+```
+class SessionsController < ApplicationController
+  skip_before_action :authenticate_user!, except: [:destroy]
+  before_action :require_no_authentication, only: [:new, :create]
+
+  def new
+    @providers = SocialAccount::AVAILABLE_PROVIDERS
+  end
+
+  def create
+    @user = User.find_by(email: params[:email])
+    # authenticate is a method provided by bcrypt gem; it returns either true or false
+    if @user && @user.authenticate(params[:password])
+      sign_in @user
+      flash[:success] = "Welcome"
+      redirect_to root_path
+    else
+      # This flash message should be visible only once, when we render the page, not after the reloading
+      # of the page
+      flash.now[:exceptions] = "Login and/or password is incorrect."
+      render 'new'
+    end
+  end
+
+  def destroy
+    sign_out
+    flash[:success] = "See you!"
+    redirect_to new_session_path
+  end
+end
+```
+
+#### Step 15: add logic to application_controller.rb
+```
+class ApplicationController < ActionController::Base
+  # Prevent CSRF attacks by raising an exception.
+  # For APIs, you may want to use :null_session instead.
+  protect_from_forgery with: :exception
+  before_action :authenticate_user!
+
+  private
+
+  def authenticate_user!
+    # user has to be authenticated
+    redirect_to new_session_path unless user_signed_in?
+  end
+
+  def require_no_authentication
+    # user has to be NOT authenticated
+    redirect_to root_path if current_user
+  end
+
+  def sign_in(user)
+    session[:user_id] = user.id
+    @current_user = user
+  end
+
+  def user_signed_in?
+    !current_user.nil?
+  end
+
+  def current_user
+    # We either return a previously set @current_user variable or
+    # assign value now
+    session[:user_id] ? @current_user ||= User.find_by(id: session[:user_id]) : nil
+  end
+
+  def sign_out
+    session.delete(:user_id)
+    @current_user = nil
+  end
+
+  # These methods should be available in the views as well
+  helper_method :current_user, :user_signed_in?
+end
+```
+
+#### Step 16: modify views/application.html.erb to look as follows
+```
+<body>
+    <%= render 'layouts/header' %>
+    <%= render 'shared/menu' %>
+
+    <% flash.each do |key, value| %>
+      <div class="alert alert-<%= key %>">
+        <%= value %>
+      </div>
+  <% end %>
+
+    <div class="container">
+      <%= yield %>
+      <%= render 'layouts/footer' %>
+      <%= debug(params) if Rails.env.development? %>
+    </div>
+  </body>
+```
+
+### Step 17: adding logic to views/sessions/new.html.erb
+```
+<h1>Authenticate</h1>
+
+<h2>Via social network</h2>
+
+<% @providers.each do |provider| %>
+  <%= link_to provider.titleize, "/auth/#{provider}" %>
+<% end %>
+
+<h2>Or use email and password</h2>
+
+<%= form_tag sessions_path, method: :post do %>
+  <%= label_tag 'email', 'Your email' %>
+  <%= email_field_tag 'email' %>
+
+  <%= label_tag 'password', 'Your password' %>
+  <%= password_field_tag 'password' %>
+
+  <%= submit_tag 'Login' %>
+<% end %>
+
+<p>Don't have an account yet? <%= link_to 'Sign up!', new_user_path %></p>
+```
+
+#### Step 18: adding logic to views/shared/_menu.html.erb
+```
+<nav>
+  <ul>
+    <% if user_signed_in? %>
+      <li><%= link_to current_user.email, edit_user_path(current_user) %></li>
+      <li><%= link_to 'Log Out', logout_path, method: :delete %></li>
+    <% else %>
+      <%= link_to 'Log In', new_session_path %>
+    <% end %>
+  </ul>
+</nav>
+```
+
+#### Step 19: adding logic to views/social_accounts/additional_info.html.erb
+```
+<h1>Please provide some additional info</h1>
+
+<%= form_tag finalize_social_accounts_path, method: :post do %>
+  <%= label_tag 'email', 'Your email' %>
+  <%= email_field_tag 'email', @auth_hash['info']['email'] %>
+
+  <%= label_tag 'password', 'Your password' %>
+  <%= password_field_tag 'password' %>
+
+  <%= submit_tag 'Log In' %>
+<% end %>
+```
+
+#### Step 20: adding logic to views/users/new.html.erb
+```
+<h1>Register</h1>
+
+<h2>Login via Social network</h2>
+
+<%= link_to 'Twitter', '/auth/twitter' %>
+<%= link_to 'Facebook', '/auth/facebook' %>
+<%= link_to 'Linkedin', '/auth/linkedin' %>
+<%= link_to 'Instagram', '/auth/instagram' %>
+
+<h2>Or User Your E-mail</h2>
+
+<%= render 'form' %>
+```
+
+#### Step 21: adding logic to views/users/edit.html.erb
+```
+<h1>Edit profile for <%= @user.email %></h1>
+
+<h2>Social Accounts</h2>
+
+<% @providers.each do |provider| %>
+  <% if current_user.has_provider?(provider) %>
+    <%= link_to "Disconnect #{provider.titleize}",
+                social_account_path(current_user.with_provider(provider)),
+                method: :delete %>
+  <% else %>
+    <%= link_to "Connect #{provider.titleize}", "/auth/#{provider}" %>
+  <% end %>
+<% end %>
+```
+
+#### Step 22: adding logic views/users/_form.html.erb
+```
+<%= form_for @user do |f| %>
+  <%= f.label :email %>
+  <%= f.email_field :email %>
+
+  <%= f.label :password %>
+  <%= f.password_field :password %>
+
+  <%= f.label :password_confirmation %>
+  <%= f.password_field :password_confirmation %>
+
+  <%= f.submit %>
+<% end %>
+```
+
+#### Step 23: modify config/routes.rb to as follows
+```
+Rails.application.routes.draw do
+  # For details on the DSL available within this file, see http://guides.rubyonrails.org/routing.html
+  resources :users, only: [:new, :create, :edit, :update]
+  resources :sessions, only: [:new, :create]
+  resources :social_accounts, only: [:destroy] do
+    collection do
+      get 'additional_info'
+      post 'finalize'
+    end
+  end
+  delete '/logout', to: 'sessions#destroy', as: :logout
+
+  get '/auth/:provider/callback', to: 'social_accounts#create'
+
+  root 'static_pages#index'
+  
+  get 'static_pages/about'
+  
+  get 'static_pages/faq'
+  
+  get 'static_pages/contact'
+end
+```
+
+#### Step 24: startup rails server
 
