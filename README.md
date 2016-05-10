@@ -83,7 +83,7 @@ export INSTAGRAM_SECRET="xxxSECRET_from_instagram_xxx"
 #### Step 10: update /models/social_account.rb model to the following
 ```
 class SocialAccount < ApplicationRecord
-  AVAILABLE_PROVIDERS = %w(twitter, facebook, linkedin, instagram)
+  AVAILABLE_PROVIDERS = %w(twitter facebook linkedin instagram)
 
   belongs_to :user
   validates :provider, presence: true, inclusion: { in: AVAILABLE_PROVIDERS }

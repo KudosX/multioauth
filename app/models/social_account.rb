@@ -1,5 +1,5 @@
 class SocialAccount < ApplicationRecord
-  AVAILABLE_PROVIDERS = %w(twitter, facebook, linkedin, instagram)
+  AVAILABLE_PROVIDERS = %w(twitter facebook linkedin instagram)
 
   belongs_to :user
   validates :provider, presence: true, inclusion: { in: AVAILABLE_PROVIDERS }
