@@ -11,7 +11,7 @@ Rails.application.routes.draw do
   delete '/logout', to: 'sessions#destroy', as: :logout
 
   get '/auth/:provider/callback', to: 'social_accounts#create'
- # get '/auth/twitter/callback', to: 'social_accounts#create'
+
   root 'static_pages#index'
 
   get 'static_pages/about'

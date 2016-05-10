@@ -9,6 +9,7 @@
 - all providers are tied to 1 user in case some users have different login credentials per provider
 - ability to activate/deactivate other providers from user profile
 - based partially on tutorial: http://www.sitepoint.com/rails-authentication-oauth-2-0-omniauth/
+- special thanks to Ilya Bodrov of http://www.radiant-wind.com
 
 #### Step 1: create user and social_account models
 - `rails g model User email:string password_digest:string`
@@ -48,7 +49,7 @@ end
 - Facebook: http://localhost:3000/auth/facebook/callback
 - Twitter: http://127.0.0.1:3000/auth/twitter/callback
 - Linkedin: http://localhost:3000/auth/linkedin/callback
-- Instagram: http://localhost:3000/auth/instagram/callback
+- Instagram: `localhost:3000/auth/instagram/callback` it doesn't like http://
 
 #### Step 6: adding Facebook ID/SECRET
 - go to https://developers.facebook.com and add new app
@@ -488,4 +489,5 @@ end
 ```
 
 #### Step 24: startup rails server
+- this app isn't complete
 
